@@ -32,11 +32,29 @@
 #include <ESP8266WebServer.h>
 #include <ElegantOTA.h>
 #include <NeoPixelBus.h>
+#include <AsyncWiFiManager.h>
+#include <EEPROM.h>
 
-const char *ssid = "KN*2.4";
-const char *password = "123#123#";
+#include "webpage.h"
+#include "wififage.h"
+
+// const char *ssid = "KN*2.42";
+// const char *password = "123#123#";
+
+// AP credentials
+const char *ap_ssid = "ESP8266-OTA";
+const char *ap_password = "88888888";
+
+// Fixed AP IP
+IPAddress apIP(8, 8, 8, 8);
+IPAddress gateway(8, 8, 8, 8);
+IPAddress subnet(255, 255, 255, 0);
 
 ESP8266WebServer server(80);
+
+#define EEPROM_SIZE 96 // đủ để lưu SSID + PASS (32 + 64)
+
+String ssid, pass;
 
 unsigned long ota_progress_millis = 0;
 
@@ -47,6 +65,14 @@ unsigned long ota_progress_millis = 0;
 
 #define DelayLedCot 25
 #define DelayLedTia 30
+
+int ledIndex = 0;
+uint32_t lastLedUpdate = 0;
+bool finished = 0;
+uint32_t Delayabc = 0;
+uint8_t colorLed = 0; // Màu hiện tại của LED
+uint8_t randompoint = 0;
+uint8_t switcheffect = 0; // Biến để theo dõi trạng thái của LED
 
 NeoPixelBus<NeoGrbFeature, NeoEsp8266DmaWs2812xMethod> strip(numLedCot + numLedTia);
 
@@ -204,8 +230,8 @@ bool blinkLedGroups_RunOnce(uint8_t color,                // màu nhấp nháy
                             uint8_t repeatMax,            // số lần lặp lại hiệu ứng
                             uint16_t blinkInterval = 200) // thời gian ON/OFF (ms)
 {
-  const uint8_t group2[] = {103, 110, 118,97,90,82};
-  const uint8_t group1[] = {104, 107,96,93};
+  const uint8_t group2[] = {103, 110, 118, 97, 90, 82};
+  const uint8_t group1[] = {104, 107, 96, 93};
   const uint8_t blinkCountMax = 4;
 
   static uint8_t currentGroup = 0; // 0: group1, 1: group2
@@ -255,33 +281,137 @@ bool blinkLedGroups_RunOnce(uint8_t color,                // màu nhấp nháy
   return false; // hiệu ứng đang chạy
 }
 
+String wifiOptions = "<option value=''>Click Rescan to search WiFi</option>";
+
+void handleScan()
+{
+  int n = WiFi.scanNetworks();
+  if (n == 0)
+  {
+    wifiOptions = "<option value=''>No networks found</option>";
+  }
+  else
+  {
+    wifiOptions = "";
+    for (int i = 0; i < n; i++)
+    {
+      String ssid = WiFi.SSID(i);
+      int rssi = WiFi.RSSI(i);
+      int quality = 0;
+      if (rssi <= -100)
+        quality = 0;
+      else if (rssi >= -50)
+        quality = 100;
+      else
+        quality = 2 * (rssi + 100);
+
+      wifiOptions += "<option value='" + ssid + "'>" + ssid + " (" + String(quality) + "%)</option>";
+    }
+  }
+  server.sendHeader("Location", "/wifi");
+  server.send(303); // Redirect về /wifi
+}
+
+void saveWiFi(String s, String p)
+{
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.write(0, s.length());
+  for (int i = 0; i < s.length(); i++)
+  {
+    EEPROM.write(i + 1, s[i]);
+  }
+  EEPROM.write(33, p.length());
+  for (int i = 0; i < p.length(); i++)
+  {
+    EEPROM.write(i + 34, p[i]);
+  }
+  EEPROM.commit();
+  EEPROM.end();
+}
+
+void loadWiFi()
+{
+  EEPROM.begin(EEPROM_SIZE);
+  int ssidLen = EEPROM.read(0);
+  ssid = "";
+  for (int i = 0; i < ssidLen; i++)
+  {
+    ssid += char(EEPROM.read(i + 1));
+  }
+  int passLen = EEPROM.read(33);
+  pass = "";
+  for (int i = 0; i < passLen; i++)
+  {
+    pass += char(EEPROM.read(i + 34));
+  }
+  EEPROM.end();
+  Serial.println("Loaded WiFi credentials:");
+  Serial.println("SSID: " + ssid);
+  Serial.println("PASS: " + pass);
+}
+
 void setup(void)
 {
-  // Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  // Serial.println("");
-
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED)
+  Serial.begin(115200);
+  // WiFi.mode(WIFI_STA);
+  // WiFi.begin(ssid, password);
+  loadWiFi();
+  if (ssid != "")
   {
-    delay(500);
-    // Serial.print(".");
-  }
-  // Serial.println("");
-  // Serial.print("Connected to ");
-  // Serial.println(ssid);
-  // Serial.print("IP address: ");
-  // Serial.println(WiFi.localIP());
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    // Serial.println("Connecting to saved WiFi: " + ssid);
 
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000)
+    {
+      delay(500);
+      Serial.print(".");
+    }
+  }
+
+  if (WiFi.status() != WL_CONNECTED)
+
+  {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(apIP, gateway, subnet);
+    WiFi.softAP(ap_ssid, ap_password);
+  }
+
+  // server.on("/", []()
+  //           { server.send(200, "text/plain", "Hi! This is ElegantOTA Demo."); });
   server.on("/", []()
-            { server.send(200, "text/plain", "Hi! This is ElegantOTA Demo."); });
+            { server.send_P(200, "text/html", MAIN_page); });
+  server.on("/wifi", []()
+            { server.send(200, "text/html", generateWiFiPage()); });
+  server.on("/scan", handleScan);
+
+  server.on("/restart", []()
+            {
+
+  server.send(200, "text/html", html_rs);
+  delay(500);
+  ESP.restart(); });
+
+  server.on("/setwifi", HTTP_POST, []()
+            {
+    String newSSID = server.arg("ssid");
+    String newPASS = server.arg("password");
+
+    // Serial.println("=== New WiFi Credentials ===");
+    // Serial.println("SSID: " + newSSID);
+    // Serial.println("PASS: " + newPASS);
+    saveWiFi(newSSID, newPASS);
+     
+    server.send(200, "text/html", html_rs);
+    delay(500);
+    ESP.restart(); });
 
   ElegantOTA.begin(&server); // Start ElegantOTA
   // ElegantOTA callbacks
-  ElegantOTA.onStart(onOTAStart); // Called when OTA starts
+  ElegantOTA.onStart(onOTAStart);       // Called when OTA starts
   ElegantOTA.onProgress(onOTAProgress); // Called during OTA progress
-  ElegantOTA.onEnd(onOTAEnd); // Called when OTA ends
+  ElegantOTA.onEnd(onOTAEnd);           // Called when OTA ends
 
   server.begin();
   // Serial.println("HTTP server started");
@@ -289,18 +419,11 @@ void setup(void)
   strip.Begin();
   strip.Show();
 }
-int ledIndex = 0;
-uint32_t lastLedUpdate = 0;
-bool finished = 0;
-uint32_t Delayabc = 0;
-uint8_t colorLed = 0; // Màu hiện tại của LED
-uint8_t randompoint = 0;
-uint8_t switcheffect = 0; // Biến để theo dõi trạng thái của LED
+
 void loop(void)
 {
   server.handleClient();
   ElegantOTA.loop();
-  // ledChaseFade_nonBlocking(ledIndex, DelayLedCot, DelayLedTia, 3, lastLedUpdate, RgbColor(0, 0, 255));
   switch (switcheffect)
   {
   case 0: // Hiệu ứng đuổi theo LED
@@ -314,26 +437,25 @@ void loop(void)
         ledIndex = 0;
         colorLed = random(20);      // Chọn màu ngẫu nhiên từ 0 đến 19
         randompoint = random(1, 5); // Số điểm ngẫu nhiên từ 1 đến 3
-        switcheffect = 1; // Chuyển sang hiệu ứng nhấp nháy LED
+        switcheffect = 1;           // Chuyển sang hiệu ứng nhấp nháy LED
       }
     }
     else
       finished = ledChaseFade_RunOnce(ledIndex, DelayLedCot, DelayLedTia, randompoint, lastLedUpdate, colorLed);
     break;
   case 1: // Hiệu ứng nhấp nháy LED
-      if (finished)
+    if (finished)
     {
       uint32_t now = millis();
       if (now - Delayabc > 1000)
       {
         Delayabc = now;
         finished = false;
-        colorLed = random(20);      // Chọn màu ngẫu nhiên từ 0 đến 19
-        switcheffect = 0; // Chuyển sang hiệu ứng đuổi theo LED
+        colorLed = random(20); // Chọn màu ngẫu nhiên từ 0 đến 19
+        switcheffect = 0;      // Chuyển sang hiệu ứng đuổi theo LED
       }
     }
     else
       finished = blinkLedGroups_RunOnce(colorLed, 1, 100);
   }
-  // finished = blinkLedGroups_RunOnce(colorLed, 1, 100);
 }

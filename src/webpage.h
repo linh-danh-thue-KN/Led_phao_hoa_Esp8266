@@ -1,7 +1,11 @@
+#ifndef WEBPAGE_H
+#define WEBPAGE_H
+
+const char MAIN_page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="UTF-8">
   <title>ESP8266 Control</title>
   <style>
@@ -13,12 +17,13 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: top;
+      margin-top: 5%;
       min-height: 100vh;
     }
     h2 {
       font-size: 32px;
-      margin-bottom: 40px;
+      margin-bottom: 80px;
     }
     .btn {
       display: flex;
@@ -82,7 +87,6 @@
       from { transform: scale(0.8); opacity: 0; }
       to   { transform: scale(1); opacity: 1; }
     }
-    
   </style>
 </head>
 <body>
@@ -126,3 +130,48 @@
   </script>
 </body>
 </html>
+
+)rawliteral";
+
+
+const char html_rs[] PROGMEM  = R"rawliteral(
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta charset="UTF-8">
+      <title>Restarting...</title>
+      <style>
+        body {
+          background-color: #121212;
+          color: #f0f0f0;
+          font-family: Arial, sans-serif;
+          text-align: center;
+          margin-top: 15%;
+        }
+        h2 { font-size: 28px; margin-bottom: 20px; }
+        .countdown {
+          font-size: 22px;
+          margin-top: 15px;
+        }
+      </style>
+      <script>
+        var seconds = 10;
+        function updateCountdown() {
+          document.getElementById("count").innerHTML = seconds;
+          if (seconds > 0) {
+            seconds--;
+            setTimeout(updateCountdown, 1000);
+          } else {
+            window.location.href = "/";
+          }
+        }
+        window.onload = updateCountdown;
+      </script>
+    </head>
+    <body>
+      <h2>Device is restarting...</h2>
+      <div class="countdown">Please wait <span id="count">10</span> seconds...</div>
+    </body>
+    </html>
+  )rawliteral";
+#endif
